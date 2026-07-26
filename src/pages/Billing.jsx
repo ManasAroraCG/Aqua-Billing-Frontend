@@ -2,6 +2,18 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import api from "../services/api";
 
+function normalizeCollection(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (Array.isArray(value?.$values)) {
+    return value.$values;
+  }
+
+  return [];
+}
+
 export default function Billing() {
   const navigate = useNavigate();
 
@@ -18,6 +30,14 @@ export default function Billing() {
   const [pricingLoading, setPricingLoading] = useState(false);
   const [savingPricing, setSavingPricing] = useState(false);
 
+  const safeCustomers = Array.isArray(customers) ? customers : [];
+  const safeProducts = Array.isArray(products) ? products : [];
+  const safeCategories = Array.isArray(categories) ? categories : [];
+  const safeCustomerPricingRecords = Array.isArray(customerPricingRecords)
+    ? customerPricingRecords
+    : [];
+  const safeCart = Array.isArray(cart) ? cart : [];
+
   useEffect(() => {
     loadData();
   }, []);
@@ -33,17 +53,26 @@ export default function Billing() {
     loadCustomerPricing(selectedCustomer);
   }, [selectedCustomer]);
 
+  useEffect(() => {
+    console.log("customers", customers);
+    console.log("products", products);
+    console.log("customerPricing", customerPricingRecords);
+  }, [customers, products, customerPricingRecords]);
+
   async function loadData() {
     try {
       const customerRes = await api.get("/customers");
       const productRes = await api.get("/products");
       const categoryRes = await api.get("/categories");
 
-      setCustomers(customerRes.data);
-      setProducts(productRes.data);
-      setCategories(categoryRes.data);
+      setCustomers(normalizeCollection(customerRes?.data));
+      setProducts(normalizeCollection(productRes?.data));
+      setCategories(normalizeCollection(categoryRes?.data));
     } catch (error) {
       console.error(error);
+      setCustomers([]);
+      setProducts([]);
+      setCategories([]);
     }
   }
 
@@ -52,7 +81,8 @@ export default function Billing() {
       setPricingLoading(true);
 
       const pricingRes = await api.get("/customer-pricing");
-      const records = pricingRes.data.filter(
+      const pricingRecords = normalizeCollection(pricingRes?.data);
+      const records = pricingRecords.filter(
         (record) => Number(record.customerId) === Number(customerId)
       );
 
@@ -66,11 +96,11 @@ export default function Billing() {
   }
 
   function getCustomerPricingRecord(productId, customerId) {
-    return customerPricingRecords.find(
+    return safeCustomerPricingRecords.find(
       (record) =>
         Number(record.customerId) === Number(customerId) &&
         Number(record.productId) === Number(productId)
-    );
+    ) || null;
   }
 
   function getEffectivePrice(productId, customerId) {
@@ -80,7 +110,7 @@ export default function Billing() {
       return Number(pricingRecord.customPrice);
     }
 
-    const product = products.find((item) => Number(item.id) === Number(productId));
+    const product = safeProducts.find((item) => Number(item.id) === Number(productId));
     return Number(product?.basePrice || 0);
   }
 
@@ -102,32 +132,38 @@ export default function Billing() {
     }
 
     const effectivePrice = getEffectivePrice(product.id, selectedCustomer);
-    const existing = cart.find((item) => item.productId === product.id);
+    const existing = safeCart.find((item) => item.productId === product.id);
 
     if (existing) {
-      setCart(
-        cart.map((item) =>
+      setCart((prev) => {
+        const safePrev = Array.isArray(prev) ? prev : [];
+
+        return safePrev.map((item) =>
           item.productId === product.id
             ? {
                 ...item,
                 quantity: item.quantity + 1,
               }
             : item
-        )
-      );
+        );
+      });
       return;
     }
 
-    setCart([
-      ...cart,
-      {
-        productId: product.id,
-        productName: product.productName,
-        modelNumber: product.modelNumber,
-        price: effectivePrice,
-        quantity: 1,
-      },
-    ]);
+    setCart((prev) => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+
+      return [
+        ...safePrev,
+        {
+          productId: product.id,
+          productName: product.productName,
+          modelNumber: product.modelNumber,
+          price: effectivePrice,
+          quantity: 1,
+        },
+      ];
+    });
   }
 
   function updateCartPrice(productId, value) {
@@ -139,61 +175,70 @@ export default function Billing() {
 
     const safePrice = Math.max(0, parsedValue);
 
-    setCart(
-      cart.map((item) =>
+    setCart((prev) => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+
+      return safePrev.map((item) =>
         item.productId === productId
           ? {
               ...item,
               price: safePrice,
             }
           : item
-      )
-    );
+      );
+    });
   }
 
   function increaseQuantity(productId) {
-    setCart(
-      cart.map((item) =>
+    setCart((prev) => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+
+      return safePrev.map((item) =>
         item.productId === productId
           ? {
               ...item,
               quantity: item.quantity + 1,
             }
           : item
-      )
-    );
+      );
+    });
   }
 
   function decreaseQuantity(productId) {
-    setCart(
-      cart.map((item) =>
+    setCart((prev) => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+
+      return safePrev.map((item) =>
         item.productId === productId
           ? {
               ...item,
               quantity: Math.max(1, item.quantity - 1),
             }
           : item
-      )
-    );
+      );
+    });
   }
 
   function removeItem(productId) {
-    setCart(cart.filter((item) => item.productId !== productId));
+    setCart((prev) => {
+      const safePrev = Array.isArray(prev) ? prev : [];
+      return safePrev.filter((item) => item.productId !== productId);
+    });
   }
 
-  const subtotal = cart.reduce(
+  const subtotal = safeCart.reduce(
     (total, item) => total + Number(item.price) * Number(item.quantity),
     0
   );
   const gst = subtotal * 0.05;
   const grandTotal = subtotal + gst;
 
-  const selectedCustomerRecord = customers.find(
+  const selectedCustomerRecord = safeCustomers.find(
     (customer) => customer.id === Number(selectedCustomer)
   );
 
   async function syncCustomerPricingWithCart(customerId) {
-    const operations = cart.map(async (item) => {
+    const operations = safeCart.map(async (item) => {
       const payload = {
         customerId: Number(customerId),
         productId: Number(item.productId),
@@ -223,14 +268,19 @@ export default function Billing() {
     const resolvedRecords = await Promise.all(operations);
 
     setCustomerPricingRecords((prev) => {
-      const untouched = prev.filter(
+      const safePrev = Array.isArray(prev) ? prev : [];
+      const safeResolvedRecords = Array.isArray(resolvedRecords)
+        ? resolvedRecords.filter(Boolean)
+        : [];
+
+      const untouched = safePrev.filter(
         (record) =>
-          !resolvedRecords.some(
+          !safeResolvedRecords.some(
             (resolved) => Number(resolved.productId) === Number(record.productId)
           )
       );
 
-      return [...untouched, ...resolvedRecords];
+      return [...untouched, ...safeResolvedRecords];
     });
   }
 
@@ -240,18 +290,18 @@ export default function Billing() {
       return;
     }
 
-    if (cart.length === 0) {
+    if (safeCart.length === 0) {
       alert("Please add at least one product");
       return;
     }
 
-    const invalidPrice = cart.find((item) => Number(item.price) < 0);
+    const invalidPrice = safeCart.find((item) => Number(item.price) < 0);
     if (invalidPrice) {
       alert("Price cannot be less than 0");
       return;
     }
 
-    const invalidQuantity = cart.find((item) => Number(item.quantity) < 1);
+    const invalidQuantity = safeCart.find((item) => Number(item.quantity) < 1);
     if (invalidQuantity) {
       alert("Quantity cannot be less than 1");
       return;
@@ -264,7 +314,7 @@ export default function Billing() {
 
       const payload = {
         customerId: Number(selectedCustomer),
-        items: cart.map((item) => ({
+        items: safeCart.map((item) => ({
           productId: item.productId,
           quantity: item.quantity,
         })),
@@ -272,14 +322,14 @@ export default function Billing() {
 
       const response = await api.post("/invoices", payload);
 
-      const finalSubTotal = cart.reduce(
+      const finalSubTotal = safeCart.reduce(
         (total, item) => total + Number(item.price) * Number(item.quantity),
         0
       );
       const finalGstAmount = finalSubTotal * 0.05;
       const finalGrandTotal = finalSubTotal + finalGstAmount;
 
-      const invoiceCart = cart.map((item) => ({ ...item }));
+      const invoiceCart = safeCart.map((item) => ({ ...item }));
 
       setCart([]);
       setSelectedCustomer("");
@@ -317,13 +367,17 @@ export default function Billing() {
     }
   }
 
-  const filteredProducts = products.filter((product) => {
-    const searchMatch = product.productName
-      ?.toLowerCase()
-      .includes(search.toLowerCase());
+  const filteredProducts = safeProducts.filter((product) => {
+    if (!product || typeof product !== "object") {
+      return false;
+    }
+
+    const searchMatch = String(product.productName || "")
+      .toLowerCase()
+      .includes(String(search || "").toLowerCase());
 
     const categoryMatch =
-      selectedCategory === "" || product.categoryId === Number(selectedCategory);
+      selectedCategory === "" || Number(product.categoryId) === Number(selectedCategory);
 
     return searchMatch && categoryMatch;
   });
@@ -357,7 +411,7 @@ export default function Billing() {
             >
               <option value="">Select Customer</option>
 
-              {customers.map((customer) => (
+              {safeCustomers.map((customer) => (
                 <option key={customer.id} value={customer.id}>
                   {customer.partyName}
                 </option>
@@ -380,7 +434,7 @@ export default function Billing() {
               >
                 <option value="">All Categories</option>
 
-                {categories.map((category) => (
+                {safeCategories.map((category) => (
                   <option key={category.id} value={category.id}>
                     {category.name}
                   </option>
@@ -463,12 +517,12 @@ export default function Billing() {
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6 lg:sticky lg:top-5">
             <h2 className="text-xl sm:text-2xl font-bold mb-5">Cart</h2>
 
-            {cart.length === 0 && (
+            {safeCart.length === 0 && (
               <p className="text-sm sm:text-base text-slate-500">No products selected</p>
             )}
 
             <div className="max-h-[52vh] overflow-y-auto pr-1 sm:max-h-[56vh]">
-              {cart.map((item) => (
+              {safeCart.map((item) => (
                 <div key={item.productId} className="border-b py-4 last:border-b-0">
                 <div className="flex justify-between gap-3">
                   <div>
@@ -515,7 +569,7 @@ export default function Billing() {
                   </div>
 
                   <span className="font-semibold text-sm sm:text-base sm:text-right">
-                    ₹{item.price * item.quantity}
+                    ₹{Number(item.price || 0) * Number(item.quantity || 0)}
                   </span>
                 </div>
                 </div>
