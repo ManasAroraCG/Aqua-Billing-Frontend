@@ -3,6 +3,18 @@ import { useNavigate } from "react-router";
 import { Search, ReceiptText, RefreshCw } from "lucide-react";
 import api from "../services/api";
 
+function normalizeCollection(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  if (Array.isArray(value?.$values)) {
+    return value.$values;
+  }
+
+  return [];
+}
+
 function formatDate(value) {
   if (!value) return "-";
 
@@ -35,16 +47,10 @@ function SkeletonRows() {
             <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
           </td>
           <td className="px-4 py-4 text-right sm:px-6">
-            <div className="ml-auto h-4 w-20 animate-pulse rounded bg-slate-200" />
-          </td>
-          <td className="px-4 py-4 text-right sm:px-6">
-            <div className="ml-auto h-4 w-20 animate-pulse rounded bg-slate-200" />
-          </td>
-          <td className="px-4 py-4 text-right sm:px-6">
             <div className="ml-auto h-4 w-24 animate-pulse rounded bg-slate-200" />
           </td>
           <td className="px-4 py-4 text-right sm:px-6">
-            <div className="ml-auto h-9 w-24 animate-pulse rounded-xl bg-slate-200" />
+            <div className="ml-auto h-9 w-20 animate-pulse rounded-xl bg-slate-200" />
           </td>
         </tr>
       ))}
@@ -65,7 +71,7 @@ export default function Invoices() {
       setError("");
 
       const response = await api.get("/invoices");
-      setInvoices(response.data || []);
+      setInvoices(normalizeCollection(response?.data));
     } catch (err) {
       console.error(err);
       setError("Unable to load invoices");
@@ -76,28 +82,63 @@ export default function Invoices() {
   }
 
   useEffect(() => {
-    loadInvoices();
+    let cancelled = false;
+
+    async function bootstrapInvoices() {
+      try {
+        const response = await api.get("/invoices");
+
+        if (!cancelled) {
+          setInvoices(normalizeCollection(response?.data));
+          setError("");
+        }
+      } catch (err) {
+        console.error(err);
+
+        if (!cancelled) {
+          setError("Unable to load invoices");
+          setInvoices([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    bootstrapInvoices();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const filteredInvoices = useMemo(() => {
+    const safeInvoices = Array.isArray(invoices) ? invoices : [];
+
     if (!searchTerm.trim()) {
-      return invoices;
+      return safeInvoices;
     }
 
     const query = searchTerm.toLowerCase();
 
-    return invoices.filter((invoice) => {
-      const invoiceNumber = String(invoice.invoiceNumber || "").toLowerCase();
-      const customerName = String(invoice.customerName || "").toLowerCase();
+    return safeInvoices.filter((invoice) => {
+      const invoiceNumber = String(invoice?.invoiceNumber || "").toLowerCase();
+      const customerName = String(invoice?.customerName || "").toLowerCase();
 
       return invoiceNumber.includes(query) || customerName.includes(query);
     });
   }, [invoices, searchTerm]);
 
   function handleViewInvoice(invoice) {
-    navigate(`/invoices/${invoice.id}`, {
+    const previewRef = encodeURIComponent(
+      String(invoice?.invoiceNumber || "preview")
+    );
+
+    navigate(`/invoices/view/${previewRef}`, {
       state: {
-        invoice,
+        invoiceId: invoice?.id,
+        invoiceNumber: invoice?.invoiceNumber,
       },
     });
   }
@@ -132,14 +173,12 @@ export default function Invoices() {
       {loading ? (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-[860px] w-full border-separate border-spacing-0">
+            <table className="min-w-[760px] w-full border-separate border-spacing-0">
               <thead>
                 <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                   <th className="px-4 py-3 sm:px-6">Invoice No.</th>
                   <th className="px-4 py-3 sm:px-6">Customer</th>
                   <th className="px-4 py-3 sm:px-6">Date</th>
-                  <th className="px-4 py-3 text-right sm:px-6">Subtotal</th>
-                  <th className="px-4 py-3 text-right sm:px-6">GST</th>
                   <th className="px-4 py-3 text-right sm:px-6">Grand Total</th>
                   <th className="px-4 py-3 text-right sm:px-6">Action</th>
                 </tr>
@@ -172,51 +211,41 @@ export default function Invoices() {
       ) : (
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="overflow-x-auto">
-            <table className="min-w-[860px] w-full border-separate border-spacing-0">
+            <table className="min-w-[760px] w-full border-separate border-spacing-0">
               <thead>
                 <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                   <th className="px-4 py-3 sm:px-6">Invoice No.</th>
                   <th className="px-4 py-3 sm:px-6">Customer</th>
                   <th className="px-4 py-3 sm:px-6">Date</th>
-                  <th className="px-4 py-3 text-right sm:px-6">Subtotal</th>
-                  <th className="px-4 py-3 text-right sm:px-6">GST</th>
                   <th className="px-4 py-3 text-right sm:px-6">Grand Total</th>
                   <th className="px-4 py-3 text-right sm:px-6">Action</th>
                 </tr>
               </thead>
 
               <tbody>
-                {filteredInvoices.map((invoice) => {
-                  const subTotal = Number(invoice.subTotal || 0);
-                  const gstAmount = Number(invoice.gstAmount || 0);
-                  const grandTotal = Number(invoice.grandTotal || 0);
-
-                  return (
-                    <tr
-                      key={invoice.id}
-                      className="border-b border-slate-100 text-sm text-slate-700 transition hover:bg-slate-50"
-                    >
-                      <td className="px-4 py-4 font-semibold text-slate-900 sm:px-6">
-                        {invoice.invoiceNumber || "-"}
-                      </td>
-                      <td className="px-4 py-4 sm:px-6">{invoice.customerName || "Unknown Customer"}</td>
-                      <td className="px-4 py-4 sm:px-6">{formatDate(invoice.invoiceDate)}</td>
-                      <td className="px-4 py-4 text-right tabular-nums sm:px-6">₹{formatAmount(subTotal)}</td>
-                      <td className="px-4 py-4 text-right tabular-nums sm:px-6">₹{formatAmount(gstAmount)}</td>
-                      <td className="px-4 py-4 text-right font-semibold text-slate-900 tabular-nums sm:px-6">
-                        ₹{formatAmount(grandTotal)}
-                      </td>
-                      <td className="px-4 py-4 text-right sm:px-6">
-                        <button
-                          onClick={() => handleViewInvoice(invoice)}
-                          className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 sm:px-4 sm:text-sm"
-                        >
-                          View
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {filteredInvoices.map((invoice) => (
+                  <tr
+                    key={invoice.id}
+                    className="border-b border-slate-100 text-sm text-slate-700 transition hover:bg-slate-50"
+                  >
+                    <td className="px-4 py-4 font-semibold text-slate-900 sm:px-6">
+                      {invoice.invoiceNumber || "-"}
+                    </td>
+                    <td className="px-4 py-4 sm:px-6">{invoice.customerName || "-"}</td>
+                    <td className="px-4 py-4 sm:px-6">{formatDate(invoice.invoiceDate)}</td>
+                    <td className="px-4 py-4 text-right font-semibold text-slate-900 tabular-nums sm:px-6">
+                      ₹{formatAmount(invoice.grandTotal)}
+                    </td>
+                    <td className="px-4 py-4 text-right sm:px-6">
+                      <button
+                        onClick={() => handleViewInvoice(invoice)}
+                        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 sm:px-4 sm:text-sm"
+                      >
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>

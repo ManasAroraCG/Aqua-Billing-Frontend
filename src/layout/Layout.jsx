@@ -54,7 +54,7 @@ export default function Layout({ children }) {
         </nav>
       </aside>
 
-      <div className="flex-1 p-4 sm:p-6 lg:p-8 bg-slate-100">
+      <div className="flex-1 bg-slate-100 px-4 pb-4 pt-2 sm:px-6 sm:pb-6 sm:pt-3 lg:px-8 lg:pb-8 lg:pt-4">
         {children}
       </div>
     </div>

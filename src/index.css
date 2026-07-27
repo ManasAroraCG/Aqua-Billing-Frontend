@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+.print-only {
+	display: none;
+}
+
 @media print {
 	@page {
 		size: A4;
@@ -17,6 +21,10 @@
 
 	.no-print {
 		display: none !important;
+	}
+
+	.print-only {
+		display: block !important;
 	}
 
 	.invoice-preview-page {
